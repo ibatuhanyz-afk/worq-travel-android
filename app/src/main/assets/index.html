@@ -49,7 +49,7 @@ h1{font-size:18px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted);line-hei
 .company-pin.grow{background:var(--blue)}.company-pin.other{background:var(--red)}
 .firm-card{display:none;position:absolute;left:9px;right:9px;bottom:9px;z-index:1000;background:#fff;border:1px solid var(--border);border-radius:13px;padding:11px;box-shadow:0 5px 18px rgba(0,0,0,.18);pointer-events:auto;touch-action:manipulation}
 .locate-btn{position:absolute;right:9px;top:46px;z-index:650;width:42px;height:42px;border:1px solid #cfd6dd;border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12);font-size:20px;display:grid;place-items:center;color:#1769e0}.locate-btn.locating{opacity:.65}.my-location-dot{filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))}
-.firm-card.show{display:block}.firm-card-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.firm-card-name{font-size:14px;font-weight:800;line-height:1.25}.firm-card-close{border:0;background:#eef1f4;border-radius:50%;width:28px;height:28px;font-size:17px;line-height:1;display:grid;place-items:center}.firm-card-address{font-size:12px;color:#4e5b67;line-height:1.4;margin-top:6px}.firm-card-meta{font-size:10px;color:var(--muted);margin-top:5px}.firm-card-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.map-status{position:absolute;left:9px;top:9px;z-index:450;background:#fff;border:1px solid var(--border);border-radius:9px;padding:6px 8px;font-size:10px;color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.firm-card.show{display:block}.firm-card-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.firm-card-name{font-size:14px;font-weight:800;line-height:1.25}.firm-card-close{border:0;background:#eef1f4;border-radius:50%;width:28px;height:28px;font-size:17px;line-height:1;display:grid;place-items:center}.firm-card-address{font-size:12px;color:#4e5b67;line-height:1.4;margin-top:6px}.firm-card-distance{margin-top:7px;padding:7px 9px;border-radius:9px;background:#f3f7ff;color:#1769e0;font-size:12px;font-weight:800;line-height:1.25}.firm-card-meta{font-size:10px;color:var(--muted);margin-top:5px}.firm-card-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.map-status{position:absolute;left:9px;top:9px;z-index:450;background:#fff;border:1px solid var(--border);border-radius:9px;padding:6px 8px;font-size:10px;color:var(--muted);box-shadow:0 2px 8px rgba(0,0,0,.08)}
 
 #mapFail{display:none;padding:16px;background:#fff3f3;color:#8b2d2d;border-bottom:1px solid #efb4b4;font-size:12px}
 .footer{padding:18px 12px calc(18px + env(safe-area-inset-bottom));font-size:11px;color:var(--muted);text-align:center}
@@ -75,6 +75,7 @@ h1{font-size:18px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted);line-hei
 <div id="firmCard" class="firm-card" aria-live="polite">
   <div class="firm-card-head"><div><div id="firmCardName" class="firm-card-name"></div><div id="firmCardMeta" class="firm-card-meta"></div></div><button id="firmCardClose" class="firm-card-close" type="button" aria-label="Kapat">×</button></div>
   <div id="firmCardAddress" class="firm-card-address"></div>
+  <div id="firmCardDistance" class="firm-card-distance">Yol: konum bekleniyor…</div>
   <div class="firm-card-actions"><button id="firmCardMaps" class="btn primary" type="button">Google Maps</button><button id="firmCardRoute" class="btn soft" type="button">Rotaya Ekle</button></div>
 </div>
 <div class="mapnote">Performanslı harita: ilçeler kümelenir; yakınlaştıkça firma pinleri açılır. Pine dokununca firma ve adres bilgisi görüntülenir.</div>
@@ -154,7 +155,7 @@ function updateMyLocation(lat,lon,accuracy,center=false){
  const ll=[lat,lon];
  if(!myAccuracyCircle){myAccuracyCircle=L.circle(ll,{radius:Math.max(accuracy,15),color:'#1769e0',weight:1,fillColor:'#1769e0',fillOpacity:.08,interactive:false}).addTo(map);}else{myAccuracyCircle.setLatLng(ll).setRadius(Math.max(accuracy,15));}
  if(!myLocationMarker){myLocationMarker=L.circleMarker(ll,{radius:9,color:'#fff',weight:3,fillColor:'#1769e0',fillOpacity:1,pane:'markerPane',className:'my-location-dot'}).addTo(map);myLocationMarker.bindPopup('<b>Konumunuz</b><br>Telefonun mevcut GPS konumu');}else myLocationMarker.setLatLng(ll);
- $('mapStatus').textContent=accuracy?('Konum ±'+Math.round(accuracy)+' m'):'Konum bulundu';$('locateBtn').classList.remove('locating');
+ $('mapStatus').textContent=accuracy?('Konum ±'+Math.round(accuracy)+' m'):'Konum bulundu';$('locateBtn').classList.remove('locating');if(selectedCompany)updateFirmDistance();
  if(center)map.setView(ll,Math.max(map.getZoom(),15),{animate:true});
 }
 window.onNativeLocation=function(lat,lon,accuracy){const center=centerOnNextNative||!autoCenteredToLocation;updateMyLocation(lat,lon,accuracy,center);centerOnNextNative=false;autoCenteredToLocation=true;};
@@ -181,8 +182,81 @@ function renderList(resetLimit=true){
  }
  host.appendChild(frag);$('loadMore').style.display=currentFiltered.length>listLimit?'block':'none';$('loadMoreBtn').textContent='Daha fazla firma göster ('+Math.min(120,currentFiltered.length-listLimit)+')';
 }
+function distanceKm(lat1,lon1,lat2,lon2){
+ const R=6371;const toRad=d=>d*Math.PI/180;const dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
+ const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+ return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function formatRoadKm(meters){
+ const km=Number(meters)/1000;if(!Number.isFinite(km))return '—';
+ return (km<10?km.toFixed(1):km.toFixed(0)).replace('.',',')+' km';
+}
+function formatDriveTime(seconds){
+ let mins=Math.max(1,Math.round(Number(seconds)/60));if(!Number.isFinite(mins))return '—';
+ if(mins<60)return mins+' dk';
+ const h=Math.floor(mins/60),m=mins%60;return h+' sa'+(m?' '+m+' dk':'');
+}
+let driveRequestSeq=0,activeDriveRequest=0,lastDriveQuery=null;
+const driveRouteCache=new Map();
+function driveCacheKey(a,b,c,d){
+ return [Number(a).toFixed(3),Number(b).toFixed(3),Number(c).toFixed(5),Number(d).toFixed(5)].join('|');
+}
+function showDriveResult(meters,seconds){
+ const el=$('firmCardDistance');if(!el)return;
+ el.textContent='Yol: '+formatRoadKm(meters)+' · ~'+formatDriveTime(seconds);
+}
+window.onDrivingRouteResult=function(requestId,ok,meters,seconds,message){
+ requestId=Number(requestId);if(requestId!==activeDriveRequest||!selectedCompany)return;
+ const el=$('firmCardDistance');if(!el)return;
+ if(ok&&Number(meters)>0&&Number(seconds)>0){
+   const key=driveCacheKey(currentPosition.lat,currentPosition.lon,selectedCompany.lat,selectedCompany.lon);
+   driveRouteCache.set(key,{meters:Number(meters),seconds:Number(seconds),ts:Date.now()});
+   showDriveResult(meters,seconds);
+ }else{
+   el.textContent='Yol bilgisi alınamadı'+(message?' · tekrar deneyin':'');
+ }
+};
+async function requestDrivingRoute(c){
+ const el=$('firmCardDistance');if(!el||!c||!currentPosition)return;
+ const now=Date.now();
+ if(lastDriveQuery&&lastDriveQuery.companyId===c.id&&
+    distanceKm(currentPosition.lat,currentPosition.lon,lastDriveQuery.lat,lastDriveQuery.lon)<0.08&&
+    now-lastDriveQuery.ts<60000)return;
+ lastDriveQuery={companyId:c.id,lat:currentPosition.lat,lon:currentPosition.lon,ts:now};
+ const key=driveCacheKey(currentPosition.lat,currentPosition.lon,c.lat,c.lon);
+ const cached=driveRouteCache.get(key);
+ if(cached&&now-cached.ts<5*60*1000){showDriveResult(cached.meters,cached.seconds);return;}
+ const req=++driveRequestSeq;activeDriveRequest=req;el.textContent='Yol mesafesi hesaplanıyor…';
+ if(window.AndroidLocation&&typeof window.AndroidLocation.requestDrivingRoute==='function'){
+   try{
+     window.AndroidLocation.requestDrivingRoute(
+       currentPosition.lat,currentPosition.lon,c.lat,c.lon,req
+     );return;
+   }catch(e){}
+ }
+ // Browser/HTML fallback. Android APK normally uses the native request above.
+ try{
+   const url='https://router.project-osrm.org/route/v1/driving/'+
+     currentPosition.lon+','+currentPosition.lat+';'+c.lon+','+c.lat+
+     '?overview=false&steps=false&alternatives=false';
+   const r=await fetch(url,{method:'GET'});
+   if(!r.ok)throw new Error('HTTP '+r.status);
+   const j=await r.json(),route=j&&j.routes&&j.routes[0];
+   if(!route)throw new Error('Rota bulunamadı');
+   window.onDrivingRouteResult(req,true,route.distance,route.duration,'');
+ }catch(e){
+   window.onDrivingRouteResult(req,false,0,0,String(e&&e.message||''));
+ }
+}
+function updateFirmDistance(){
+ const el=$('firmCardDistance');if(!el||!selectedCompany)return;
+ if(!validCoord(selectedCompany)){el.textContent='Yol: firma konumu bulunamadı';return;}
+ if(!currentPosition){el.textContent='Yol: konum alınıyor…';return;}
+ requestDrivingRoute(selectedCompany);
+}
 function showFirmCard(c){
- selectedCompany=c;$('firmCardName').textContent=c.name||'İsimsiz Firma';$('firmCardAddress').textContent=onlyAddress(c);$('firmCardMeta').textContent=[c.district,c.neighborhood,c.status,c.tag].filter(Boolean).join(' · ');$('firmCardRoute').textContent=isInRoute(c.id)?'Rotadan Çıkar':'Rotaya Ekle';$('firmCard').classList.add('show');
+ if(!selectedCompany||selectedCompany.id!==c.id)lastDriveQuery=null;
+ selectedCompany=c;$('firmCardName').textContent=c.name||'İsimsiz Firma';$('firmCardAddress').textContent=onlyAddress(c);$('firmCardMeta').textContent=[c.district,c.neighborhood,c.status,c.tag].filter(Boolean).join(' · ');$('firmCardRoute').textContent=isInRoute(c.id)?'Rotadan Çıkar':'Rotaya Ekle';$('firmCard').classList.add('show');updateFirmDistance();if(!currentPosition){setTimeout(()=>locateMe(false).then(()=>updateFirmDistance()),0);}
 }
 function hideFirmCard(){selectedCompany=null;$('firmCard').classList.remove('show');}
 function focusCompany(c){if(!map||!validCoord(c))return;map.setView([c.lat,c.lon],16,{animate:false});showFirmCard(c);setTimeout(()=>scheduleMapRender(false),60);}

@@ -15,12 +15,23 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
-import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
 import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 1407;
@@ -66,11 +77,21 @@ public class MainActivity extends Activity {
             @JavascriptInterface public void requestLocation() {
                 runOnUiThread(() -> ensureLocation(true));
             }
+
             @JavascriptInterface public void openLocationSettings() {
                 runOnUiThread(() -> {
                     try { startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)); }
                     catch (Exception ignored) {}
                 });
+            }
+
+            @JavascriptInterface public void requestDrivingRoute(
+                    double fromLat, double fromLon,
+                    double toLat, double toLon,
+                    int requestId) {
+                new Thread(() -> fetchDrivingRoute(
+                        fromLat, fromLon, toLat, toLon, requestId
+                ), "WorqRoute-" + requestId).start();
             }
         }, "AndroidLocation");
 
@@ -78,10 +99,12 @@ public class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return handleNavigation(request.getUrl());
             }
+
             @SuppressWarnings("deprecation")
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return handleNavigation(Uri.parse(url));
             }
+
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 pageReady = true;
@@ -91,7 +114,8 @@ public class MainActivity extends Activity {
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
-            @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+            @Override public void onGeolocationPermissionsShowPrompt(
+                    String origin, GeolocationPermissions.Callback callback) {
                 if (hasLocationPermission()) {
                     callback.invoke(origin, true, false);
                     startLocationUpdates();
@@ -109,8 +133,10 @@ public class MainActivity extends Activity {
     }
 
     private boolean hasLocationPermission() {
-        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
     }
 
     private void requestLocationPermission() {
@@ -140,10 +166,12 @@ public class MainActivity extends Activity {
 
             if (!locationStarted) {
                 if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                    locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2500L, 5f, locationListener);
+                    locationManager.requestLocationUpdates(
+                            LocationManager.NETWORK_PROVIDER, 2500L, 5f, locationListener);
                 }
                 if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                    locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2500L, 5f, locationListener);
+                    locationManager.requestLocationUpdates(
+                            LocationManager.GPS_PROVIDER, 2500L, 5f, locationListener);
                 }
                 locationStarted = true;
             }
@@ -163,7 +191,84 @@ public class MainActivity extends Activity {
     private void sendLocation(Location loc) {
         if (loc == null || webView == null || !pageReady) return;
         String js = "window.onNativeLocation && window.onNativeLocation(" +
-                loc.getLatitude() + "," + loc.getLongitude() + "," + Math.max(0f, loc.getAccuracy()) + ");";
+                loc.getLatitude() + "," + loc.getLongitude() + "," +
+                Math.max(0f, loc.getAccuracy()) + ");";
+        webView.post(() -> {
+            if (webView != null) webView.evaluateJavascript(js, null);
+        });
+    }
+
+    private void fetchDrivingRoute(
+            double fromLat, double fromLon,
+            double toLat, double toLon,
+            int requestId) {
+        HttpURLConnection conn = null;
+        try {
+            String endpoint = String.format(
+                    Locale.US,
+                    "https://router.project-osrm.org/route/v1/driving/%.7f,%.7f;%.7f,%.7f?overview=false&steps=false&alternatives=false",
+                    fromLon, fromLat, toLon, toLat
+            );
+
+            conn = (HttpURLConnection) new URL(endpoint).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(15000);
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("User-Agent", "Worq-Travel-Android/1.0");
+
+            int status = conn.getResponseCode();
+            InputStream stream = status >= 200 && status < 300
+                    ? conn.getInputStream() : conn.getErrorStream();
+
+            StringBuilder body = new StringBuilder();
+            if (stream != null) {
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = br.readLine()) != null) body.append(line);
+                }
+            }
+
+            if (status < 200 || status >= 300) {
+                throw new Exception("Rota servisi HTTP " + status);
+            }
+
+            JSONObject json = new JSONObject(body.toString());
+            if (!"Ok".equals(json.optString("code"))) {
+                throw new Exception("Rota bulunamadı");
+            }
+
+            JSONArray routes = json.optJSONArray("routes");
+            if (routes == null || routes.length() == 0) {
+                throw new Exception("Rota bulunamadı");
+            }
+
+            JSONObject route = routes.getJSONObject(0);
+            double meters = route.optDouble("distance", -1);
+            double seconds = route.optDouble("duration", -1);
+            if (meters <= 0 || seconds <= 0) {
+                throw new Exception("Geçersiz rota sonucu");
+            }
+
+            sendDrivingRouteResult(requestId, true, meters, seconds, "");
+        } catch (Exception e) {
+            String msg = e.getMessage() == null ? "Rota servisine ulaşılamadı" : e.getMessage();
+            sendDrivingRouteResult(requestId, false, 0, 0, msg);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private void sendDrivingRouteResult(
+            int requestId, boolean ok,
+            double meters, double seconds,
+            String message) {
+        if (webView == null) return;
+        String safeMessage = JSONObject.quote(message == null ? "" : message);
+        String js = "window.onDrivingRouteResult && window.onDrivingRouteResult(" +
+                requestId + "," + ok + "," + meters + "," + seconds + "," +
+                safeMessage + ");";
         webView.post(() -> {
             if (webView != null) webView.evaluateJavascript(js, null);
         });
@@ -176,7 +281,9 @@ public class MainActivity extends Activity {
         String path = uri.getPath();
         boolean geo = "geo".equalsIgnoreCase(scheme);
         boolean maps = host != null &&
-                (host.endsWith("google.com") || host.endsWith("google.com.tr") || host.equals("maps.app.goo.gl")) &&
+                (host.endsWith("google.com") ||
+                 host.endsWith("google.com.tr") ||
+                 host.equals("maps.app.goo.gl")) &&
                 (path == null || path.contains("/maps"));
         if (!geo && !maps) return false;
 
@@ -189,12 +296,17 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
             }
         } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, "Google Maps veya uygun harita uygulaması bulunamadı.", Toast.LENGTH_LONG).show();
+            Toast.makeText(
+                    this,
+                    "Google Maps veya uygun harita uygulaması bulunamadı.",
+                    Toast.LENGTH_LONG
+            ).show();
         }
         return true;
     }
 
-    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+    @Override public void onRequestPermissionsResult(
+            int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != LOCATION_REQUEST) return;
         boolean granted = hasLocationPermission();
@@ -204,7 +316,11 @@ public class MainActivity extends Activity {
             pendingGeoOrigin = null;
         }
         if (granted) startLocationUpdates();
-        else Toast.makeText(this, "Konumunuzu haritada göstermek için konum izni gerekli.", Toast.LENGTH_LONG).show();
+        else Toast.makeText(
+                this,
+                "Konumunuzu haritada göstermek için konum izni gerekli.",
+                Toast.LENGTH_LONG
+        ).show();
     }
 
     @Override protected void onResume() {
@@ -214,7 +330,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onPause() {
         if (locationManager != null && locationStarted) {
-            try { locationManager.removeUpdates(locationListener); } catch (SecurityException ignored) {}
+            try { locationManager.removeUpdates(locationListener); }
+            catch (SecurityException ignored) {}
             locationStarted = false;
         }
         super.onPause();
@@ -222,7 +339,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (locationManager != null && locationStarted) {
-            try { locationManager.removeUpdates(locationListener); } catch (SecurityException ignored) {}
+            try { locationManager.removeUpdates(locationListener); }
+            catch (SecurityException ignored) {}
         }
         if (webView != null) {
             webView.loadUrl("about:blank");
