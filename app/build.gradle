@@ -10,8 +10,8 @@ android {
         applicationId "com.worq.travel.mobile"
         minSdk 23
         targetSdk 35
-        versionCode 24
-        versionName "2.4-native-splash-location"
+        versionCode 30
+        versionName "3.0-turkiye-distance"
     }
 
     buildTypes {
