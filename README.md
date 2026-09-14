@@ -1,28 +1,20 @@
-# Worq & Travel Android — Türkiye V3
+# Worq & Travel Android — 4.669 Firma / Pin Stability Fix
 
-Bu proje GitHub Actions ile doğrudan kurulabilir Android APK üretir.
+Bu sürüm GitHub Actions ile APK üretmek için hazırlanmıştır.
 
-## Özellikler
-- Native Android 5 saniyelik tam ekran açılış görseli
-- `Maps_V2.xlsx` kaynağından 11.465 Türkiye firma kaydı
-- Türkiye > il > ilçe > firma şeklinde performanslı harita/küme görünümü
-- GROW / GROW_PLC mavi, diğer firmalar kırmızı
-- Dokunmatik firma pinleri, küme firma listesi ve firma bilgi kartı
-- Firma adı ekranda; Google Maps arama ve rota sorgularına yalnızca `Organization - Address` gönderilir
-- İl/ilçe filtreleri, arama, durum ve segment filtreleri
-- Toplu ilçe rotası ve Google Maps rota parçalama
-- Gerçek Android GPS izni, mavi mevcut konum noktası ve doğruluk çemberi
-- Firma uzaklığı yalnızca kilometre olarak gösterilir; süre tahmini yoktur
-- Eski İstanbul verisinde aynı adresi bulunan 5.790 kaydın mevcut koordinatı korunur
-- Yeni adreslerin hassas koordinatı Android Geocoder ile ihtiyaç halinde adres üzerinden bulunup cihazda önbelleğe alınır
+## Veri
+- Yalnızca son CSV'deki 4.669 firma vardır.
+- Firma verilerinde soru işaretine dönüşmüş Türkçe karakter yoktur.
+- Eski 11.465 firma datası yüklenmez.
+- Google Maps'e yalnızca firma adres alanı gönderilir.
 
-## GitHub Actions
-Repo'ya push edildiğinde `.github/workflows/build-apk.yml` otomatik çalışır.
+## Pin bilgi kartı düzeltmesi
+- Firma pinleri pointer-down sırasında sabitlenir; arka plandaki geocoding işlemleri dokunma sırasında marker katmanını yeniden oluşturmaz.
+- Native geocoder sonuçları tek tek marker katmanını silip yeniden çizmez; aktif geocoding kuyruğu tamamlanınca tek seferde yenilenir.
+- Android WebView için firma markerına Leaflet click yanında doğrudan pointer-up dokunma olayı da bağlanmıştır.
+- Aynı firma için art arda oluşan click/pointer olayları çift açılmayı önlemek için kısa süreli tekilleştirilir.
+- Cluster tıklamasından sonra otomatik yakınlaştırma/ayrıştırma devam eder.
+- Firma kartında Google Maps'te Aç düğmesi vardır.
 
-Başarılı build sonrası:
-Actions > ilgili çalışma > Artifacts > `Worq-Travel-Android-APK`
-
-İndirilen ZIP içindeki `Worq-Travel.apk` telefona kurulabilir.
-
-Uygulama kimliği: `com.worq.travel.mobile`
-Sürüm: `3.0-turkiye-distance` (versionCode 30)
+Uygulama kimliği: `com.worq.travel.firmas`
+Sürüm: `3.1.4-github-pin-stability` (versionCode 35)
